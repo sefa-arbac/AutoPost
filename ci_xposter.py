@@ -8,7 +8,7 @@
 #   X_REFRESH_TOKEN
 #   OPENAI_API_KEY (opsiyonel)
 
-import os, json, time, requests, datetime, feedparser
+import os, json, time, requests, feedparser, datetime
 from openai import OpenAI
 
 CLIENT_ID      = os.environ.get("X_CLIENT_ID")
@@ -27,6 +27,22 @@ FEEDS = [
     "https://www.trthaber.com/xml_mobile.php",
 ]
 
+POSTED_FILE = "posted.json"
+
+# --- Yardımcılar ---
+def load_posted():
+    if os.path.exists(POSTED_FILE):
+        try:
+            with open(POSTED_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def save_posted(posted):
+    with open(POSTED_FILE, "w", encoding="utf-8") as f:
+        json.dump(posted, f, indent=2)
+
 def get_access_token() -> str:
     import base64
     basic = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
@@ -42,17 +58,18 @@ def get_access_token() -> str:
     return r.json()["access_token"]
 
 def fetch_breaking_from_feeds():
+    posted = set(load_posted())
     for url in FEEDS:
         try:
             d = feedparser.parse(url)
             if not d.entries:
                 continue
-            e = d.entries[0]
-            title = (e.get("title") or "").strip()
-            link  = (e.get("link") or "").strip()
-            src   = (d.feed.get("title") or url).strip()
-            if title and link:
-                return title, link, src
+            for e in d.entries:
+                title = (e.get("title") or "").strip()
+                link  = (e.get("link") or "").strip()
+                src   = (d.feed.get("title") or url).strip()
+                if title and link and link not in posted:
+                    return title, link, src
         except Exception:
             continue
     return None
@@ -65,8 +82,7 @@ def safe_trim(text: str, max_len: int) -> str:
 def build_tweet(headline: str, link: str, source: str) -> str:
     base_text = f"#SonDakika {headline} ({source})"
     if not OPENAI_API_KEY:
-        tweet = f"{base_text} {link}"
-        return safe_trim(tweet, 280)
+        return safe_trim(f"{base_text} {link}", 280)
 
     try:
         client = OpenAI(api_key=OPENAI_API_KEY)
@@ -80,16 +96,15 @@ def build_tweet(headline: str, link: str, source: str) -> str:
         resp = client.responses.create(
             model="gpt-4o-mini",
             input=[
-                {"role":"system","content":system},
-                {"role":"user","content":headline},
+                {"role": "system", "content": system},
+                {"role": "user", "content": headline},
             ],
         )
         text = resp.output_text.strip() or base_text
     except Exception:
         text = base_text
 
-    tweet = f"{text} {link}"
-    return safe_trim(tweet, 280)
+    return safe_trim(f"{text} {link}", 280)
 
 def post_tweet(text: str):
     token = get_access_token()
@@ -102,12 +117,16 @@ def post_tweet(text: str):
 def run_news_once():
     item = fetch_breaking_from_feeds()
     if not item:
-        print("Haber bulunamadı")
+        print("Haber bulunamadı veya hepsi paylaşıldı.")
         return
     title, link, src = item
     tweet = build_tweet(title, link, src)
     print(">> Draft:\n", tweet)
     post_tweet(tweet)
+
+    posted = load_posted()
+    posted.append(link)
+    save_posted(posted)
 
 if __name__ == "__main__":
     import sys
