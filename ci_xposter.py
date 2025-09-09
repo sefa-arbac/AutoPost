@@ -17,14 +17,17 @@ REFRESH_TOKEN  = os.environ.get("X_REFRESH_TOKEN")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 TOKEN_URL  = "https://api.twitter.com/2/oauth2/token"
-TWEET_URL  = "https://api.x.com/2/tweets"
+TWEET_URL  = "https://api.twitter.com/2/tweets"
 
 FEEDS = [
-    "https://www.aa.com.tr/tr/rss/default?cat=guncel",
-    "https://www.reuters.com/world/rss",
-    "https://www.bbc.co.uk/news/world/rss.xml",
-    "https://www.dw.com/overlay/atom/tr",
-    "https://www.trthaber.com/xml_mobile.php",
+    "https://www.aa.com.tr/tr/rss/default?cat=guncel",  # Anadolu Ajansı (Güncel)
+    "https://www.reuters.com/world/rss",                # Reuters World
+    "https://www.bbc.co.uk/news/world/rss.xml",         # BBC World
+    "https://www.dw.com/overlay/atom/tr",               # DW Türkçe
+    "https://www.trthaber.com/xml_mobile.php"           # TRT Haber (mobil RSS)
+    "https://www.fanatik.com.tr/rss",
+    "https://www.ntvspor.net/rss",
+    "https://www.trtspor.com.tr/rss.html"
 ]
 
 POSTED_FILE = "posted.json"
@@ -58,7 +61,11 @@ def get_access_token() -> str:
     return r.json()["access_token"]
 
 def fetch_breaking_from_feeds():
+    """RSS akışlarından en güncel, daha önce paylaşılmamış haberi döndürür."""
     posted = set(load_posted())
+    latest_item = None
+    latest_time = None
+
     for url in FEEDS:
         try:
             d = feedparser.parse(url)
@@ -68,11 +75,25 @@ def fetch_breaking_from_feeds():
                 title = (e.get("title") or "").strip()
                 link  = (e.get("link") or "").strip()
                 src   = (d.feed.get("title") or url).strip()
-                if title and link and link not in posted:
-                    return title, link, src
-        except Exception:
+                published = e.get("published_parsed") or e.get("updated_parsed")
+
+                if not (title and link and published):
+                    continue
+                if link in posted:
+                    continue
+
+                pub_dt = datetime.datetime.fromtimestamp(time.mktime(published))
+
+                if (latest_time is None) or (pub_dt > latest_time):
+                    latest_time = pub_dt
+                    latest_item = (title, link, src, pub_dt)
+
+        except Exception as ex:
+            print(f"Feed okunamadı: {url} ({ex})")
             continue
-    return None
+
+    return latest_item  # None veya (title, link, source, datetime)
+
 
 def safe_trim(text: str, max_len: int) -> str:
     if len(text) <= max_len:
@@ -119,7 +140,7 @@ def run_news_once():
     if not item:
         print("Haber bulunamadı veya hepsi paylaşıldı.")
         return
-    title, link, src = item
+    title, link, src, pub_dt = item
     tweet = build_tweet(title, link, src)
     print(">> Draft:\n", tweet)
     post_tweet(tweet)
@@ -127,6 +148,7 @@ def run_news_once():
     posted = load_posted()
     posted.append(link)
     save_posted(posted)
+
 
 if __name__ == "__main__":
     import sys
