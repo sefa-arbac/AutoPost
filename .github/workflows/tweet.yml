@@ -2,7 +2,7 @@ name: Auto Tweet News
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # Her 10 dakikada bir (UTC)
+    - cron: "*/100 * * * *"   # Her 100 dakikada bir (UTC)
   workflow_dispatch:         # Elle tetikleme için
 
 jobs:
