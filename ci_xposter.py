@@ -1,7 +1,6 @@
 # ci_xposter.py
 # Kullanım:
 #   python ci_xposter.py --news   → Tek seferlik haber tweetle
-#   python ci_xposter.py --auto   → Başlangıçta + her 10 dakikada bir tweetle
 #
 # Gerekli Secrets (GitHub Actions için):
 #   X_CLIENT_ID
@@ -9,12 +8,12 @@
 #   X_REFRESH_TOKEN
 #   OPENAI_API_KEY (opsiyonel)
 
-import os, json, time, requests, feedparser, datetime, schedule, sys
+import os, json, time, requests, feedparser, datetime, sys
 from openai import OpenAI
 
 CLIENT_ID      = os.environ.get("X_CLIENT_ID")
 CLIENT_SECRET  = os.environ.get("X_CLIENT_SECRET")
-REFRESH_TOKEN  = os.environ.get("X_REFRESH_TOKEN")   # fallback olarak
+REFRESH_TOKEN  = os.environ.get("X_REFRESH_TOKEN")   # fallback
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 TOKEN_URL  = "https://api.twitter.com/2/oauth2/token"
@@ -34,7 +33,7 @@ FEEDS = [
 TOK_FILE    = "tokens.json"
 POSTED_FILE = "posted.json"
 
-# --- Yardımcılar ---
+# --- Helpers ---
 def load_posted():
     if os.path.exists(POSTED_FILE):
         try:
@@ -49,7 +48,6 @@ def save_posted(posted):
         json.dump(posted, f, indent=2)
 
 def get_refresh_token():
-    """tokens.json içindeki refresh_token varsa onu kullanır, yoksa Secrets’taki"""
     if os.path.exists(TOK_FILE):
         try:
             with open(TOK_FILE, "r", encoding="utf-8") as f:
@@ -61,13 +59,12 @@ def get_refresh_token():
     return REFRESH_TOKEN
 
 def get_access_token() -> str:
-    """refresh_token ile yeni access_token alır, yeni refresh_token geldiyse kaydeder"""
     import base64
     basic = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
 
     refresh = get_refresh_token()
     if not refresh:
-        raise SystemExit("❌ Refresh token bulunamadı (ne tokens.json’da ne de Secrets’ta).")
+        raise SystemExit("❌ Refresh token bulunamadı.")
 
     data = {
         "grant_type": "refresh_token",
@@ -83,7 +80,6 @@ def get_access_token() -> str:
     r.raise_for_status()
     resp = r.json()
 
-    # Yeni refresh_token geldiyse kaydet
     if "refresh_token" in resp:
         with open(TOK_FILE, "w", encoding="utf-8") as f:
             json.dump(resp, f, indent=2)
@@ -178,12 +174,5 @@ def run_news_once():
     save_posted(posted)
 
 # ====== main ======
-# ====== main ======
 if __name__ == "__main__":
-    print("⏳ Otomatik mod başlatıldı: Her 100 dakikada bir haber paylaşılacak.")
     run_news_once()
-    schedule.every(100).minutes.do(run_news_once)
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-
