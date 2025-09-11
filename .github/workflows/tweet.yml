@@ -2,7 +2,7 @@ name: Auto Tweet News
 
 on:
   schedule:
-    - cron: "*/100 * * * *"   # Her 10 dakikada bir (UTC)
+    - cron: "*/100 * * * *"   # Her 100 dakikada bir (UTC)
   workflow_dispatch:         # Elle tetikleme için
 
 jobs:
@@ -12,12 +12,14 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # tokens.json için cache
-      - name: Cache tokens.json
+      # tokens.json ve posted.json için cache
+      - name: Cache tokens and posted files
         uses: actions/cache@v4
         with:
-          path: tokens.json
-          key: tokens-cache
+          path: |
+            tokens.json
+            posted.json
+          key: xposter-cache
 
       - name: Setup Python
         uses: actions/setup-python@v5
