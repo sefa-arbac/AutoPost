@@ -1,14 +1,15 @@
 # ci_xposter.py
 # Kullanım:
-#   python ci_xposter.py --news
+#   python ci_xposter.py --news   → Tek seferlik haber tweetle
+#   python ci_xposter.py --auto   → Başlangıçta + her 10 dakikada bir tweetle
 #
-# Gereken env değişkenleri (GitHub Secrets):
+# Gerekli Secrets (GitHub Actions için):
 #   X_CLIENT_ID
 #   X_CLIENT_SECRET
 #   X_REFRESH_TOKEN
 #   OPENAI_API_KEY (opsiyonel)
 
-import os, json, time, requests, feedparser, datetime
+import os, json, time, requests, feedparser, datetime, schedule, sys
 from openai import OpenAI
 
 CLIENT_ID      = os.environ.get("X_CLIENT_ID")
@@ -17,19 +18,20 @@ REFRESH_TOKEN  = os.environ.get("X_REFRESH_TOKEN")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 TOKEN_URL  = "https://api.twitter.com/2/oauth2/token"
-TWEET_URL  = "https://api.x.com/2/tweets"
+TWEET_URL  = "https://api.twitter.com/2/tweets"
 
 FEEDS = [
-    "https://www.aa.com.tr/tr/rss/default?cat=guncel",  # Anadolu Ajansı (Güncel)
-    "https://www.reuters.com/world/rss",                # Reuters World
-    "https://www.bbc.co.uk/news/world/rss.xml",         # BBC World
-    "https://www.dw.com/overlay/atom/tr",               # DW Türkçe
-    "https://www.trthaber.com/xml_mobile.php"           # TRT Haber (mobil RSS)
+    "https://www.aa.com.tr/tr/rss/default?cat=guncel",
+    "https://www.reuters.com/world/rss",
+    "https://www.bbc.co.uk/news/world/rss.xml",
+    "https://www.dw.com/overlay/atom/tr",
+    "https://www.trthaber.com/xml_mobile.php",
     "https://www.fanatik.com.tr/rss",
     "https://www.ntvspor.net/rss",
     "https://www.trtspor.com.tr/rss.html"
 ]
 
+TOK_FILE    = "tokens.json"
 POSTED_FILE = "posted.json"
 
 # --- Yardımcılar ---
@@ -47,14 +49,15 @@ def save_posted(posted):
         json.dump(posted, f, indent=2)
 
 def get_access_token() -> str:
+    """tokens.json’daki refresh_token veya Secrets’taki X_REFRESH_TOKEN ile yeni access_token alır"""
     import base64
     basic = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
 
     # Önce tokens.json’dan refresh_token dene
     local_refresh = None
-    if os.path.exists("tokens.json"):
+    if os.path.exists(TOK_FILE):
         try:
-            with open("tokens.json", "r", encoding="utf-8") as f:
+            with open(TOK_FILE, "r", encoding="utf-8") as f:
                 local_refresh = json.load(f).get("refresh_token")
         except Exception:
             pass
@@ -75,20 +78,18 @@ def get_access_token() -> str:
     r.raise_for_status()
     resp = r.json()
 
-    # Eğer yeni refresh_token geldiyse tokens.json’a yaz
+    # Yeni refresh_token geldiyse kaydet
     if "refresh_token" in resp:
-        with open("tokens.json", "w", encoding="utf-8") as f:
+        with open(TOK_FILE, "w", encoding="utf-8") as f:
             json.dump(resp, f, indent=2)
         print("🔄 Yeni refresh_token kaydedildi.")
 
     return resp["access_token"]
 
-
 def fetch_breaking_from_feeds():
-    """RSS akışlarından en güncel, daha önce paylaşılmamış haberi döndürür."""
+    """RSS’lerden en güncel, daha önce paylaşılmamış haberi bul"""
     posted = set(load_posted())
-    latest_item = None
-    latest_time = None
+    latest_item, latest_time = None, None
 
     for url in FEEDS:
         try:
@@ -100,32 +101,33 @@ def fetch_breaking_from_feeds():
                 link  = (e.get("link") or "").strip()
                 src   = (d.feed.get("title") or url).strip()
                 published = e.get("published_parsed") or e.get("updated_parsed")
-
                 if not (title and link and published):
                     continue
                 if link in posted:
                     continue
 
                 pub_dt = datetime.datetime.fromtimestamp(time.mktime(published))
-
                 if (latest_time is None) or (pub_dt > latest_time):
                     latest_time = pub_dt
                     latest_item = (title, link, src, pub_dt)
-
         except Exception as ex:
             print(f"Feed okunamadı: {url} ({ex})")
             continue
 
-    return latest_item  # None veya (title, link, source, datetime)
-
+    return latest_item
 
 def safe_trim(text: str, max_len: int) -> str:
-    if len(text) <= max_len:
-        return text
-    return text[:max_len-3] + "..."
+    return text if len(text) <= max_len else text[:max_len-3] + "..."
 
-def build_tweet(headline: str, link: str, source: str) -> str:
-    base_text = f"#SonDakika {headline} ({source})"
+def build_tweet(headline: str, link: str, source: str, published=None) -> str:
+    """ChatGPT ile özetli tweet üret (opsiyonel), aksi halde başlık+link"""
+    hashtag = "#SonDakika"
+    if published:
+        age_hours = (datetime.datetime.now(datetime.UTC) - published.replace(tzinfo=datetime.UTC)).total_seconds()/3600
+        if age_hours > 2:
+            hashtag = "#Gündem"
+
+    base_text = f"{hashtag} {headline}"
     if not OPENAI_API_KEY:
         return safe_trim(f"{base_text} {link}", 280)
 
@@ -134,9 +136,8 @@ def build_tweet(headline: str, link: str, source: str) -> str:
         system = (
             "Sen deneyimli bir Türk haber editörüsün. "
             "Görev: Verilen haberi 200 karakter içinde özetle. "
-            "Türkçe yaz. "
-            "Kaynak adı ya da link yazma. "
-            "Sadece #SonDakika hashtagini kullan."
+            "Türkçe yaz. Kaynak adı ya da link yazma. "
+            f"Sadece {hashtag} hashtagini kullan."
         )
         resp = client.responses.create(
             model="gpt-4o-mini",
@@ -165,7 +166,7 @@ def run_news_once():
         print("Haber bulunamadı veya hepsi paylaşıldı.")
         return
     title, link, src, pub_dt = item
-    tweet = build_tweet(title, link, src)
+    tweet = build_tweet(title, link, src, pub_dt)
     print(">> Draft:\n", tweet)
     post_tweet(tweet)
 
@@ -173,10 +174,16 @@ def run_news_once():
     posted.append(link)
     save_posted(posted)
 
-
+# ====== main ======
 if __name__ == "__main__":
-    import sys
     if len(sys.argv) >= 2 and sys.argv[1] == "--news":
         run_news_once()
+    elif len(sys.argv) >= 2 and sys.argv[1] == "--auto":
+        print("⏳ Otomatik mod başlatıldı: Her 10 dakikada bir haber paylaşılacak.")
+        run_news_once()
+        schedule.every(10).minutes.do(run_news_once)
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
     else:
         run_news_once()
