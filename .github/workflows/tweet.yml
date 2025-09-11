@@ -9,15 +9,22 @@ jobs:
   tweet:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
+
+      # tokens.json için cache
+      - name: Cache tokens.json
+        uses: actions/cache@v4
+        with:
+          path: tokens.json
+          key: tokens-cache
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests feedparser openai schedule
