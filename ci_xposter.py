@@ -17,7 +17,7 @@ REFRESH_TOKEN  = os.environ.get("X_REFRESH_TOKEN")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 TOKEN_URL  = "https://api.twitter.com/2/oauth2/token"
-TWEET_URL  = "https://api.twitter.com/2/tweets"
+TWEET_URL  = "https://api.x.com/2/tweets"
 
 FEEDS = [
     "https://www.aa.com.tr/tr/rss/default?cat=guncel",  # Anadolu Ajansı (Güncel)
