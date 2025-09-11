@@ -14,7 +14,7 @@ from openai import OpenAI
 
 CLIENT_ID      = os.environ.get("X_CLIENT_ID")
 CLIENT_SECRET  = os.environ.get("X_CLIENT_SECRET")
-REFRESH_TOKEN  = os.environ.get("X_REFRESH_TOKEN")
+REFRESH_TOKEN  = os.environ.get("X_REFRESH_TOKEN")   # fallback olarak
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 TOKEN_URL  = "https://api.twitter.com/2/oauth2/token"
@@ -48,21 +48,26 @@ def save_posted(posted):
     with open(POSTED_FILE, "w", encoding="utf-8") as f:
         json.dump(posted, f, indent=2)
 
-def get_access_token() -> str:
-    """tokens.json’daki refresh_token veya Secrets’taki X_REFRESH_TOKEN ile yeni access_token alır"""
-    import base64
-    basic = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
-
-    # Önce tokens.json’dan refresh_token dene
-    local_refresh = None
+def get_refresh_token():
+    """tokens.json içindeki refresh_token varsa onu kullanır, yoksa Secrets’taki"""
     if os.path.exists(TOK_FILE):
         try:
             with open(TOK_FILE, "r", encoding="utf-8") as f:
-                local_refresh = json.load(f).get("refresh_token")
+                local = json.load(f).get("refresh_token")
+                if local:
+                    return local
         except Exception:
             pass
+    return REFRESH_TOKEN
 
-    refresh = local_refresh or REFRESH_TOKEN
+def get_access_token() -> str:
+    """refresh_token ile yeni access_token alır, yeni refresh_token geldiyse kaydeder"""
+    import base64
+    basic = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+
+    refresh = get_refresh_token()
+    if not refresh:
+        raise SystemExit("❌ Refresh token bulunamadı (ne tokens.json’da ne de Secrets’ta).")
 
     data = {
         "grant_type": "refresh_token",
@@ -87,7 +92,6 @@ def get_access_token() -> str:
     return resp["access_token"]
 
 def fetch_breaking_from_feeds():
-    """RSS’lerden en güncel, daha önce paylaşılmamış haberi bul"""
     posted = set(load_posted())
     latest_item, latest_time = None, None
 
@@ -120,7 +124,6 @@ def safe_trim(text: str, max_len: int) -> str:
     return text if len(text) <= max_len else text[:max_len-3] + "..."
 
 def build_tweet(headline: str, link: str, source: str, published=None) -> str:
-    """ChatGPT ile özetli tweet üret (opsiyonel), aksi halde başlık+link"""
     hashtag = "#SonDakika"
     if published:
         age_hours = (datetime.datetime.now(datetime.UTC) - published.replace(tzinfo=datetime.UTC)).total_seconds()/3600
