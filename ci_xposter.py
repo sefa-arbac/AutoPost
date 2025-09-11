@@ -184,7 +184,7 @@ if __name__ == "__main__":
     elif len(sys.argv) >= 2 and sys.argv[1] == "--auto":
         print("⏳ Otomatik mod başlatıldı: Her 10 dakikada bir haber paylaşılacak.")
         run_news_once()
-        schedule.every(10).minutes.do(run_news_once)
+        schedule.every(100).minutes.do(run_news_once)
         while True:
             schedule.run_pending()
             time.sleep(1)
