@@ -49,16 +49,40 @@ def save_posted(posted):
 def get_access_token() -> str:
     import base64
     basic = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+
+    # Önce tokens.json’dan refresh_token dene
+    local_refresh = None
+    if os.path.exists("tokens.json"):
+        try:
+            with open("tokens.json", "r", encoding="utf-8") as f:
+                local_refresh = json.load(f).get("refresh_token")
+        except Exception:
+            pass
+
+    refresh = local_refresh or REFRESH_TOKEN
+
     data = {
         "grant_type": "refresh_token",
-        "refresh_token": REFRESH_TOKEN,
+        "refresh_token": refresh,
         "client_id": CLIENT_ID,
     }
-    headers = {"Content-Type": "application/x-www-form-urlencoded",
-               "Authorization": f"Basic {basic}"}
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": f"Basic {basic}",
+    }
     r = requests.post(TOKEN_URL, data=data, headers=headers, timeout=30)
+    print("Refresh status:", r.status_code, r.text)
     r.raise_for_status()
-    return r.json()["access_token"]
+    resp = r.json()
+
+    # Eğer yeni refresh_token geldiyse tokens.json’a yaz
+    if "refresh_token" in resp:
+        with open("tokens.json", "w", encoding="utf-8") as f:
+            json.dump(resp, f, indent=2)
+        print("🔄 Yeni refresh_token kaydedildi.")
+
+    return resp["access_token"]
+
 
 def fetch_breaking_from_feeds():
     """RSS akışlarından en güncel, daha önce paylaşılmamış haberi döndürür."""
