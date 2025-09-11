@@ -2,7 +2,7 @@ name: Auto Tweet News
 
 on:
   schedule:
-    - cron: "*/100 * * * *"   # Her 100 dakikada bir (UTC)
+    - cron: "*/100 * * * *"   # Her 10 dakikada bir (UTC)
   workflow_dispatch:         # Elle tetikleme için
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install requests feedparser openai
+          pip install requests feedparser openai schedule
 
       - name: Run poster
         env:
